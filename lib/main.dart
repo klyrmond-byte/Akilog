@@ -5,10 +5,8 @@ import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'dart:typed_data';
 import 'dart:convert';
-import 'dart:convert';
 
 void main() async {
-WidgetsFlutterBinding.ensureInitialized();
 WidgetsFlutterBinding.ensureInitialized();
 await Hive.initFlutter();
 await Hive.openBox('produtos');
@@ -160,10 +158,19 @@ final List<String> _categorias = ['Todos', 'Eletrônicos', 'Moda', 'Casa', 'Espo
 @override void initState() { super.initState(); _carregar(); _pesq.addListener(_aplicarFiltros); }
 
 void _carregar() {
-setState(() {
-_produtos = _caixa.values.map((p) => Produto.fromMap(Map.from(p))).toList();
-_aplicarFiltros();
-});
+  final produtos = _caixa.values.map((p) => Produto.fromMap(Map.from(p))).toList();
+  final termo = _pesq.text.toLowerCase();
+  final filtrados = produtos.where((p) {
+    final temTexto = p.nome.toLowerCase().contains(termo) || p.descricao.toLowerCase().contains(termo);
+    final temCat = _catSelecionada == null || _catSelecionada == 'Todos' || p.categoria == _catSelecionada;
+    final temPreco = _precoMax == null || p.preco <= _precoMax!;
+    return temTexto && temCat && temPreco;
+  }).toList();
+  if (!mounted) return;
+  setState(() {
+    _produtos = produtos;
+    _filtrados = filtrados;
+  });
 }
 
 void _aplicarFiltros() {
@@ -182,20 +189,52 @@ void _salvar(Produto p) { _caixa.put(p.id, p.toMap()); _carregar(); }
 void _excluir(String id) { _caixa.delete(id); _carregar(); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Produto excluído ✅'))); }
 
 Future<String?> _escolherFoto() async {
-final picker = ImagePicker();
-return showModalBottomSheet<String?>(context: context, builder: (c) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
-ListTile(leading: const Icon(Icons.camera_alt, color: Color(0xFF1565C0)), title: const Text('Câmera'), onTap: () async {
-final f = await picker.pickImage(source: ImageSource.camera);
-if (f != null) if (mounted) Navigator.pop(c, 'base64:${base64Encode(await f.readAsBytes())}'); }), ListTile(leading: const Icon(Icons.photo_library, color: Color(0xFF1565C0)), title: const Text('Galeria'), onTap: () async { final f = await picker.pickImage(source: ImageSource.gallery); if (f != null) if (mounted) Navigator.pop(c, 'base64:${base64Encode(await f.readAsBytes())}');
-}),
- ])));
+  final picker = ImagePicker();
+  return showModalBottomSheet<String?>(
+    context: context,
+    builder: (c) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            leading: const Icon(Icons.camera_alt, color: Color(0xFF1565C0)),
+            title: const Text('Câmera'),
+            onTap: () async {
+              final f = await picker.pickImage(source: ImageSource.camera);
+              if (f != null && mounted) {
+                Navigator.pop(c, 'base64:${base64Encode(await f.readAsBytes())}');
+              }
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.photo_library, color: Color(0xFF1565C0)),
+            title: const Text('Galeria'),
+            onTap: () async {
+              final f = await picker.pickImage(source: ImageSource.gallery);
+              if (f != null && mounted) {
+                Navigator.pop(c, 'base64:${base64Encode(await f.readAsBytes())}');
+              }
+            },
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 Widget _foto(String src) {
-if (src.startsWith('base64:')) {
-  try { return Image.memory(base64Decode(src.substring(7)), fit: BoxFit.cover); } catch (_) { return const Icon(Icons.broken_image); }
-}
-return Image.network(src, fit: BoxFit.cover, errorBuilder: (context, error, stack) => const Icon(Icons.broken_image));
+  if (src.startsWith('base64:')) {
+    try {
+      return Image.memory(base64Decode(src.substring(7)), fit: BoxFit.cover);
+    } catch (_) {
+      return const Icon(Icons.broken_image);
+    }
+  }
+  return Image.network(
+    src,
+    fit: BoxFit.cover,
+    errorBuilder: (context, error, stack) => const Icon(Icons.broken_image),
+  );
 }
 
 void _formProd({Produto? p}) {
@@ -245,18 +284,11 @@ child: Text(p == null ?'Cadastrar ✅':'Salvar ✅', style: const TextStyle(font
 void _comprar(Produto p) {
 showModalBottomSheet(context: context, isScrollControlled: true,
 builder: (ctx) => PagamentoTela(produto: p, onConcluido: (compra) {
-p.status = 'vendido'; __salvar(p); Navigator.pop(ctx);
-Navigator.push(context, MaterialPageRoute(builder: () => TelaRastreio(compra: compra)));
+p.status = 'vendido'; _salvar(p); Navigator.pop(ctx);
+Navigator.push(context, MaterialPageRoute(builder: (context) => TelaRastreio(compra: compra)));
 }),
 );
 }
-
-@override void dispose() {
-_pesq.dispose();
-super.dispose();
-}
-
-@override void dispose() { _pesq.dispose(); super.dispose(); }
 
 @override Widget build(BuildContext context) {
 return Scaffold(
@@ -293,7 +325,7 @@ selectedColor: Colors.blue.shade100, checkmarkColor: const Color(0xFF1565C0),
 ),
 const SizedBox(height: 8),
 Row(children: [
-const Text('Até R$', style: TextStyle(color: Colors.grey)),
+const Text('Até R`$', style: TextStyle(color: Colors.grey)),
 const SizedBox(width: 6),
 Expanded(child: TextField(keyboardType: TextInputType.number, decoration: const InputDecoration(hintText: 'Preço máximo', isDense: true, contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8)),
 onChanged: (v) { _precoMax = v.isEmpty ? null : double.tryParse(v.replaceAll(',', '.')); _aplicarFiltros(); },
@@ -302,7 +334,7 @@ onChanged: (v) { _precoMax = v.isEmpty ? null : double.tryParse(v.replaceAll(','
 ])),
 Expanded(child: _filtrados.isEmpty
 ? const Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.shopping_bag_outlined, size: 60, color: Colors.grey), SizedBox(height: 12), Text('Nenhum produto encontrado', style: TextStyle(fontSize: 16, color: Colors.grey))]))
-: ListView.builder(padding: const EdgeInsets.all(10), itemCount: __filtrados.length,
+: ListView.builder(padding: const EdgeInsets.all(10), itemCount: _filtrados.length,
 itemBuilder: (context, i) { final p = _filtrados[i]; return Card(elevation: 3, margin: const EdgeInsets.only(bottom: 12), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
 child: InkWell(onTap: ()=>Navigator.push(context, MaterialPageRoute(builder: (context) => DetalheProduto(produto: p, aoComprar: _comprar, aoAvaliar: _carregar))),
 child: Padding(padding: const EdgeInsets.all(12), child: Row(children: [
@@ -319,12 +351,12 @@ decoration: BoxDecoration(color: Colors.orange.shade100, borderRadius: BorderRad
 child: const Text('Vendido', style: TextStyle(color: Colors.orange, fontSize: 12))),
  ])),
 PopupMenuButton(onSelected: (op) {
-if(op=='editar') __formProd(p: p);
+if (op == 'editar') _formProd(p: p);
 if(op=='excluir') showDialog(context: context, builder: (c)=>AlertDialog(title: const Text('Excluir?'),
 actions: [TextButton(onPressed: ()=>Navigator.pop(c), child: const Text('Cancelar')),
 TextButton(onPressed: (){Navigator.pop(c); _excluir(p.id);}, child: const Text('Excluir', style: TextStyle(color: Colors.red))),
  ]));
-}, itemBuilder: ()=>[const PopupMenuItem(value: 'editar', child: Row(children: [Icon(Icons.edit, size: 18), SizedBox(width: 8), Text('Editar')])),
+}, itemBuilder: (context) => [const PopupMenuItem(value: 'editar', child: Row(children: [Icon(Icons.edit, size: 18), SizedBox(width: 8), Text('Editar')])),
 const PopupMenuItem(value: 'excluir', child: Row(children: [Icon(Icons.delete, size: 18, color: Colors.red), SizedBox(width: 8), Text('Excluir')])),
 ]),
 ]))),
@@ -352,27 +384,39 @@ final _cvv = TextEditingController();
 final _chavePix = TextEditingController(text: 'akilog@email.com');
 
 void _confirmar() {
-if(_metodo=='cartao' && (_numeroCartao.text.replaceAll(' ', '').length<16 || _nomeCartao.text.isEmpty)) {
-ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Preencha os dados do cartão'))); return;
-}
-if(_metodo=='pix' && _chavePix.text.isEmpty) {
-ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Informe a chave Pix'))); return;
-}
-final id = DateTime.now().millisecondsSinceEpoch.toString();
-final codigo = 'AKL-${id.substring(id.length - 6)}';
-final numeroLimpo = _numeroCartao.text.replaceAll(' ', '');
-final compra = Compra(
-id: id, produtoId: widget.produto.id, produtoNome: widget.produto.nome,
-valor: widget.produto.preco, codigoRastreio: codigo, status: 'Pedido confirmado', data: DateTime.now(),
-metodoPagamento: _metodo == 'pix' ? 'Pix' : 'Cartão de Crédito',
-numeroCartao: _metodo == 'cartao' && numeroLimpo.length >= 4 ? '**** ${numeroLimpo.substring(numeroLimpo.length - 4)}' : null,
-chavePix: _metodo=='pix' ? _chavePix.text : null,
-);
-Hive.box('compras').put(compra.id, compra.toMap());
-widget.onConcluido(compra);
-}
+  final numeroLimpo = _numeroCartao.text.replaceAll(RegExp(r'\s+'), '');
+  if (_metodo == 'cartao' && (numeroLimpo.length < 16 || _nomeCartao.text.isEmpty)) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Preencha os dados do cartão')),
+    );
+    return;
+  }
+  if (_metodo == 'pix' && _chavePix.text.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Informe a chave Pix')),
+    );
+    return;
+  }
 
-@override void dispose() { _nomeCartao.dispose(); _numeroCartao.dispose(); _validade.dispose(); _cvv.dispose(); _chavePix.dispose(); super.dispose(); }
+  final id = DateTime.now().millisecondsSinceEpoch.toString();
+  final codigo = 'AKL-${id.substring(id.length - 6)}';
+  final compra = Compra(
+    id: id,
+    produtoId: widget.produto.id,
+    produtoNome: widget.produto.nome,
+    valor: widget.produto.preco,
+    codigoRastreio: codigo,
+    status: 'Pedido confirmado',
+    data: DateTime.now(),
+    metodoPagamento: _metodo == 'pix' ? 'Pix' : 'Cartão de Crédito',
+    numeroCartao: _metodo == 'cartao' && numeroLimpo.length >= 4
+        ? '**** ${numeroLimpo.substring(numeroLimpo.length - 4)}'
+        : null,
+    chavePix: _metodo == 'pix' ? _chavePix.text : null,
+  );
+  Hive.box('compras').put(compra.id, compra.toMap());
+  widget.onConcluido(compra);
+}
 
 @override Widget build(BuildContext context) {
 return Padding(padding: EdgeInsets.only(left: 20, right: 20, top: 25, bottom: MediaQuery.of(context).viewInsets.bottom+25),
@@ -429,11 +473,13 @@ _comentCtrl.clear(); _carregarAvaliacoes(); widget.aoAvaliar();
 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Avaliação enviada ⭐')));
 }
 
+@override void dispose() { _comentCtrl.dispose(); super.dispose(); }
+
 @override Widget build(BuildContext context) {
 return Scaffold(appBar: AppBar(title: Text(widget.produto.nome)),
 body: SingleChildScrollView(padding: const EdgeInsets.all(20), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
 ClipRRect(borderRadius: BorderRadius.circular(12), child: SizedBox(width: double.infinity, height: 250,
-child: widget.produto.imagem.startsWith('base64:') ? Image.memory(Uint8List.fromList(widget.produto.imagem.substring(7).codeUnits), fit: BoxFit.cover)
+child: widget.produto.imagem.startsWith('base64:') ? Image.memory(base64Decode(widget.produto.imagem.substring(7)), fit: BoxFit.cover)
 : Image.network(widget.produto.imagem, fit: BoxFit.cover),
 )),
 const SizedBox(height: 16),
@@ -524,8 +570,6 @@ final Box _caixa = Hive.box('mensagens'); final _ctrl = TextEditingController();
 @override void initState() { super.initState(); _carregar(); }
 void _carregar() { setState(() { _msgs = _caixa.values.map((m)=>Mensagem.fromMap(Map.from(m))).toList(); _msgs.sort((a,b)=>b.hora.compareTo(a.hora)); }); }
 void _enviar() { if(_ctrl.text.trim().isEmpty) return; final m = Mensagem(id: DateTime.now().toString(), remetente: 'Você', destinatario: 'Vendedor', texto: _ctrl.text.trim(), hora: DateTime.now()); _caixa.put(m.id, m.toMap()); _ctrl.clear(); _carregar(); }
-@override void dispose() { _ctrl.dispose(); super.dispose(); }
-
 @override void dispose() { _ctrl.dispose(); super.dispose(); }
 
 @override Widget build(BuildContext context) {
